@@ -107,7 +107,11 @@ def main():
             if count >= THRESHOLD_ATTEMPTS:
                 msg = (f"🚨 Percobaan login SSH mencurigakan\n"
                        f"IP: {ip}\nUser: {user}\nJumlah percobaan: {count}")
-                ai = analyze_with_gemini(msg)
+
+                # AI ringkas untuk percobaan gagal
+                ai_prompt = f"Ringkas percobaan login mencurigakan: IP {ip}, user {user}, percobaan {count}"
+                ai = analyze_with_gemini(ai_prompt)
+
                 send_whatsapp(msg + "\n\n🤖 Analisis AI:\n" + ai)
                 attempts[ip] = []
 
@@ -118,7 +122,15 @@ def main():
         if m2 and NOTIFY_ON_SUCCESS:
             user, ip = m2.group(1), m2.group(2)
             msg = f"ℹ️ Login sukses\nUser: {user}\nIP: {ip}\nWaktu: {now.isoformat()}"
-            ai = analyze_with_gemini(msg)
+
+            # AI lengkap untuk login sukses
+            ai_prompt = (f"Anda berhasil login dengan informasi berikut:\n"
+                         f"- User: {user}\n"
+                         f"- IP: {ip}\n"
+                         f"- Waktu: {now.isoformat()}\n"
+                         "Buat analisis keamanan dan saran jika ada.")
+            ai = analyze_with_gemini(ai_prompt)
+
             send_whatsapp(msg + "\n\n🤖 Analisis AI:\n" + ai)
 
 if __name__ == "__main__":
