@@ -1,2 +1,5 @@
+# HTTP client — untuk mengirim permintaan HTTP/REST
 requests
+
+# Memuat variabel lingkungan dari file .env (mis. API keys)
 python-dotenv
