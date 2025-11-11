@@ -10,7 +10,7 @@ import re
 import time
 import requests
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 # ---------------- CONFIG ---------------- #
@@ -77,10 +77,7 @@ def analyze_with_gemini(prompt_text: str, short: bool = False) -> str:
 
     # Safety: jika short requested, trim prompt to a short summary if it's long
     if short:
-        # make sure prompt is short (<= 300 chars)
-        prompt = prompt_text
-        if len(prompt) > 300:
-            prompt = prompt[:300] + "..."
+        prompt = prompt_text[:300] + "..." if len(prompt_text) > 300 else prompt_text
     else:
         prompt = prompt_text
 
@@ -93,7 +90,6 @@ def analyze_with_gemini(prompt_text: str, short: bool = False) -> str:
             r = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=10)
             r.raise_for_status()
             j = r.json()
-            # Safely parse candidate text
             if "candidates" in j and len(j["candidates"]) > 0:
                 try:
                     return j["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -102,17 +98,14 @@ def analyze_with_gemini(prompt_text: str, short: bool = False) -> str:
             return "(AI error: empty response)"
         except requests.exceptions.HTTPError as http_e:
             status = getattr(http_e.response, "status_code", None)
-            # 429: Too Many Requests -> retry with backoff
             if status == 429:
                 wait = attempt * 2
                 print(f"[WARN] Gemini 429 Too Many Requests — retry {attempt}/{max_retries} after {wait}s")
                 time.sleep(wait)
                 continue
-            # Other HTTP errors -> return message
             print(f"[ERROR] AI HTTP error: {http_e}")
             return f"(AI error: {http_e})"
         except requests.exceptions.Timeout:
-            # timeout -> retry
             wait = attempt * 2
             print(f"[WARN] Gemini request timed out — retry {attempt}/{max_retries} after {wait}s")
             time.sleep(wait)
@@ -140,7 +133,6 @@ def tail_file(path):
             try:
                 if inode is None:
                     inode = os.fstat(f.fileno()).st_ino
-                # detect logrotate
                 if os.stat(path).st_ino != inode:
                     f.close()
                     f = open(path, "r")
@@ -155,9 +147,10 @@ def main():
 
     tail = tail_file(LOG_PATH)
     attempts = defaultdict(list)
+    wita = timezone(timedelta(hours=8))  # zona waktu WITA
 
     for line in tail:
-        now = datetime.utcnow()
+        now = datetime.now(wita)
 
         # ---- Login gagal ----
         m = FAILED_RE.search(line)
@@ -165,29 +158,23 @@ def main():
             user, ip = m.group(1), m.group(2)
             attempts[ip].append(now)
 
-            # cleanup window
             cutoff = now - timedelta(minutes=WINDOW_MINUTES)
             attempts[ip] = [t for t in attempts[ip] if t >= cutoff]
             count = len(attempts[ip])
 
-            # console log untuk debug
             print(f"[{now.isoformat()}] FAILED ip={ip} user={user} count={count}")
 
             if count >= THRESHOLD_ATTEMPTS:
-                # message untuk WA (human readable)
+                waktu_str = now.strftime("%d %B %Y, %H:%M:%S") + " WITA"
                 msg = (
                     f"🚨 Percobaan login SSH mencurigakan\n"
-                    f"IP: {ip}\nUser: {user}\nJumlah percobaan: {count}"
+                    f"IP: {ip}\nUser: {user}\nJumlah percobaan: {count}\n"
+                    f"Waktu: {waktu_str}"
                 )
 
-                # AI ringkas untuk percobaan gagal: pendek & terfokus
-                ai_prompt = f"Ringkas: IP {ip}, user {user}, percobaan {count}"
+                ai_prompt = f"Ringkas: IP {ip}, user {user}, percobaan {count}, waktu {waktu_str}"
                 ai = analyze_with_gemini(ai_prompt, short=True)
-
-                # send WA (AI result bisa berisi error string, tetap dikirim)
                 send_whatsapp(msg + "\n\n🤖 Analisis AI:\n" + ai)
-
-                # reset attempts untuk IP ini supaya tidak spam berulang
                 attempts[ip] = []
 
             continue
@@ -196,30 +183,23 @@ def main():
         m2 = ACCEPTED_RE.search(line)
         if m2 and NOTIFY_ON_SUCCESS:
             user, ip = m2.group(1), m2.group(2)
-
-            # PRINT ke console agar terlihat (diminta)
             print(f"[{now.isoformat()}] SUCCESS ip={ip} user={user}")
 
-            # message untuk WA
-            msg = f"ℹ️ Login sukses\nUser: {user}\nIP: {ip}\nWaktu: {now.isoformat()}"
+            waktu_str = now.strftime("%d %B %Y, %H:%M:%S") + " WITA"
+            msg = f"ℹ️ Login sukses\nUser: {user}\nIP: {ip}\nWaktu: {waktu_str}"
 
-            # AI lengkap untuk login sukses (lebih detail)
             ai_prompt = (
                 f"Anda berhasil login dengan informasi berikut:\n"
                 f"- User: {user}\n"
                 f"- IP: {ip}\n"
-                f"- Waktu: {now.isoformat()}\n\n"
+                f"- Waktu: {waktu_str}\n\n"
                 "Buat analisis singkat terkait keamanan (apakah ini mencurigakan?) "
                 "dan rekomendasi tindakan jika diperlukan."
             )
 
             ai = analyze_with_gemini(ai_prompt, short=False)
-
             send_whatsapp(msg + "\n\n🤖 Analisis AI:\n" + ai)
 
 
 if __name__ == "__main__":
     main()
-
-
-#update: 2024-10-05
