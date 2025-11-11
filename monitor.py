@@ -37,7 +37,6 @@ def format_wita():
 def send_whatsapp(message: str):
     """Kirim pesan WA via Fonnte."""
     if not FONNTE_TOKEN or not FONNTE_DEVICE_NO:
-        print("[WARN] Fonnte token/device belum dikonfigurasikan.")
         return False
     try:
         headers = {"Authorization": FONNTE_TOKEN, "Content-Type": "application/json"}
